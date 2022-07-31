@@ -2,7 +2,14 @@ import torch
 import torch.nn as nn
 
 
+#-------------------------------------------------#
+#   ResNet50以上使用的block
+#   主干: 卷积+bn+relu -> 卷积+bn+relu -> 卷积+bn
+#   短接: 卷积+bn
+#   短接后有relu
+#-------------------------------------------------#
 class Bottleneck(nn.Module):
+    # 残差结构中主分支中间和最后一层的核心数变化比例
     expansion = 4
     def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=nn.BatchNorm2d):
         super().__init__()
@@ -13,7 +20,7 @@ class Bottleneck(nn.Module):
         self.conv3  = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3    = norm_layer(planes * 4)
         self.relu   = nn.ReLU(inplace=True)
-        
+
         self.downsample = downsample
         self.stride     = stride
 
@@ -28,12 +35,14 @@ class Bottleneck(nn.Module):
         out = self.bn2(out)
         out = self.relu(out)
 
+        # 最后一层conv没有relu
         out = self.conv3(out)
         out = self.bn3(out)
 
         if self.downsample is not None:
             residual = self.downsample(x)
 
+        # 相加后有relu
         out += residual
         out = self.relu(out)
 
