@@ -7,8 +7,15 @@ from torchvision.ops import nms
 class BBoxUtility(object):
     def __init__(self):
         pass
-    
+
+    #-------------------------------------#
+    #   调整先验框并将xywh 转换为 x1y1x2y2
+    #-------------------------------------#
     def decode_boxes(self, pred_box, anchors, variances = [0.1, 0.2]):
+        """
+        pred_box: 预测值 [18525, 4]
+        anchors:  先验框 [18525, 4]
+        """
         #---------------------------------------------------------#
         #   anchors[:, :2] 先验框中心
         #   anchors[:, 2:] 先验框宽高
@@ -20,8 +27,8 @@ class BBoxUtility(object):
         #---------------------------------------------------------#
         #   获得左上角和右下角
         #---------------------------------------------------------#
-        boxes[:, :2] -= boxes[:, 2:] / 2
-        boxes[:, 2:] += boxes[:, :2]
+        boxes[:, :2] -= boxes[:, 2:] / 2    # xy - 1/2wh = x1y1
+        boxes[:, 2:] += boxes[:, :2]        # x1y1 + wh  = x2y2
         return boxes
 
     def jaccard(self, box_a, box_b, iscrowd: bool = False):
@@ -48,9 +55,22 @@ class BBoxUtility(object):
         return out if use_batch else out.squeeze(0)
 
     def fast_non_max_suppression(self, box_thre, class_thre, mask_thre, nms_iou=0.5, top_k=200, max_detections=100):
+        """快速非极大值抑制
+
+        Args:
+            box_thre (tensor):   保存的框   [num_of_kept_boxes, 4]
+            class_thre (tensor): 保存的类别 [num_of_kept_boxes, 80]
+            mask_thre (tensor):  保存的分割 [num_of_kept_boxes, 32]
+            nms_iou (float, optional): 非极大值抑制阈值,越小越严格. Defaults to 0.5.
+            top_k (int, optional): 对每一个种类单独进行排序的最终保留值. Defaults to 200.
+            max_detections (int, optional): 最大检测数量. Defaults to 100.
+
+        Returns:
+            _type_: _description_
+        """
         #---------------------------------------------------------#
         #   先进行tranpose，方便后面的处理
-        #   [80, num_of_kept_boxes]
+        #   [num_of_kept_boxes, 80] -> [80, num_of_kept_boxes]
         #---------------------------------------------------------#
         class_thre      = class_thre.transpose(1, 0).contiguous()
         #---------------------------------------------------------#
@@ -58,16 +78,20 @@ class BBoxUtility(object):
         #   每一行坐标为该种类所有的框的得分，
         #   对每一个种类单独进行排序
         #---------------------------------------------------------#
-        class_thre, idx = class_thre.sort(1, descending=True) 
-        
+        class_thre, idx = class_thre.sort(1, descending=True)
+
+        #---------------------------------------------------------#
+        #   保留前top_k个值
+        #---------------------------------------------------------#
         idx             = idx[:, :top_k].contiguous()
         class_thre      = class_thre[:, :top_k]
 
+        # 80, num_of_kept_boxes(<=200)
         num_classes, num_dets = idx.size()
         #---------------------------------------------------------#
         #   将num_classes作为第一维度，对每一个类进行非极大抑制
-        #   [80, num_of_kept_boxes, 4]    
-        #   [80, num_of_kept_boxes, 32]    
+        #   [80, num_of_kept_boxes, 4]
+        #   [80, num_of_kept_boxes, 32]
         #---------------------------------------------------------#
         box_thre    = box_thre[idx.view(-1), :].view(num_classes, num_dets, 4)
         mask_thre   = mask_thre[idx.view(-1), :].view(num_classes, num_dets, -1)
@@ -169,37 +193,40 @@ class BBoxUtility(object):
 
     def decode_nms(self, outputs, anchors, confidence, nms_iou, image_shape, traditional_nms=False, max_detections=100):
         #---------------------------------------------------------#
-        #   pred_box    [18525, 4]  对应每个先验框的调整情况
-        #   pred_class  [18525, 81] 对应每个先验框的种类      
-        #   pred_mask   [18525, 32] 对应每个先验框的语义分割情况
-        #   pred_proto  [128, 128, 32]  需要和结合pred_mask使用
+        #   pred_box:   [b, 18525, 4]       对应每个先验框的调整情况
+        #   pred_class: [b, 18525, 81]      对应每个先验框的种类
+        #   pred_mask:  [b, 18525, 32]      对应每个先验框的语义分割情况
+        #   pred_proto: [b, 136, 136, 32]   需要和结合pred_mask使用
+        #   去除batch=1
         #---------------------------------------------------------#
-        pred_box    = outputs[0].squeeze()       
+        pred_box    = outputs[0].squeeze()
         pred_class  = outputs[1].squeeze()
         pred_masks  = outputs[2].squeeze()
         pred_proto  = outputs[3].squeeze()
 
         #---------------------------------------------------------#
-        #   将先验框调整获得预测框，
-        #   [18525, 4] boxes是左上角、右下角的形式。
+        #   调整先验框并将xywh 转换为 x1y1x2y2
+        #   [18525, 4] -> [18525, 4]
+        #   boxes是左上角、右下角的形式。
         #---------------------------------------------------------#
-        boxes       = self.decode_boxes(pred_box, anchors) 
+        boxes       = self.decode_boxes(pred_box, anchors)
 
         #---------------------------------------------------------#
-        #   除去背景的部分，并获得最大的得分 
+        #   pred_class的最后维度再模型中经过了softmax处理
+        #   除去背景的部分，并获得最大的得分
         #   [18525, 80]
         #   [18525]
         #---------------------------------------------------------#
-        pred_class          = pred_class[:, 1:]    
-        pred_class_max, _   = torch.max(pred_class, dim=1)
-        keep        = (pred_class_max > confidence)
+        pred_class          = pred_class[:, 1:]             # [18525, 81] -> [18525, 80]
+        pred_class_max, _   = torch.max(pred_class, dim=1)  # 返回值和下标    [18525]
+        keep        = (pred_class_max > confidence)         #                [18525]
 
         #---------------------------------------------------------#
         #   保留满足得分的框，如果没有框保留，则返回None
         #---------------------------------------------------------#
-        box_thre    = boxes[keep, :]
-        class_thre  = pred_class[keep, :]
-        mask_thre   = pred_masks[keep, :]
+        box_thre    = boxes[keep, :]        # [num_of_kept_boxes, 4]
+        class_thre  = pred_class[keep, :]   # [num_of_kept_boxes, 80]
+        mask_thre   = pred_masks[keep, :]   # [num_of_kept_boxes, 32]
         if class_thre.size()[0] == 0:
             return None, None, None, None, None
 
@@ -212,7 +239,7 @@ class BBoxUtility(object):
             mask_thre   = mask_thre[keep]
         else:
             box_thre, class_thre, class_ids, mask_thre = self.traditional_non_max_suppression(box_thre, class_thre, mask_thre, pred_class_max[keep], nms_iou, max_detections)
-        
+
         box_thre    = self.yolact_correct_boxes(box_thre, image_shape)
 
         #---------------------------------------------------------#
@@ -230,7 +257,7 @@ class BBoxUtility(object):
         masks_sigmoid   = self.crop(masks_sigmoid, box_thre)
 
         #----------------------------------------------------------------------#
-        #   masks_arg   [image_shape[0], image_shape[1]]    
+        #   masks_arg   [image_shape[0], image_shape[1]]
         #   获得每个像素点所属的实例
         #----------------------------------------------------------------------#
         masks_arg       = torch.argmax(masks_sigmoid, dim=-1)

@@ -35,7 +35,7 @@ if __name__ == "__main__":
     #----------------------------------------------------------------------------------------------------------#
     #   test_interval       用于指定测量fps的时候，图片检测的次数。理论上test_interval越大，fps越准确。
     #   fps_image_path      用于指定测试的fps图片
-    #   
+    #
     #   test_interval和fps_image_path仅在mode='fps'有效
     #----------------------------------------------------------------------------------------------------------#
     test_interval   = 100
@@ -43,7 +43,7 @@ if __name__ == "__main__":
     #-------------------------------------------------------------------------#
     #   dir_origin_path     指定了用于检测的图片的文件夹路径
     #   dir_save_path       指定了检测完图片的保存路径
-    #   
+    #
     #   dir_origin_path和dir_save_path仅在mode='dir_predict'时有效
     #-------------------------------------------------------------------------#
     dir_origin_path = "img/"
@@ -103,13 +103,13 @@ if __name__ == "__main__":
             frame = np.array(yolact.detect_image(frame))
             # RGBtoBGR满足opencv显示格式
             frame = cv2.cvtColor(frame,cv2.COLOR_RGB2BGR)
-            
+
             fps  = ( fps + (1./(time.time()-t1)) ) / 2
             print("fps= %.2f"%(fps))
             frame = cv2.putText(frame, "fps= %.2f"%(fps), (0, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            
+
             cv2.imshow("video",frame)
-            c= cv2.waitKey(1) & 0xff 
+            c= cv2.waitKey(1) & 0xff
             if video_save_path!="":
                 out.write(frame)
 
@@ -143,9 +143,9 @@ if __name__ == "__main__":
                 if not os.path.exists(dir_save_path):
                     os.makedirs(dir_save_path)
                 r_image.save(os.path.join(dir_save_path, img_name.replace(".jpg", ".png")), quality=95, subsampling=0)
-        
+
     elif mode == "export_onnx":
         yolact.convert_to_onnx(simplify, onnx_save_path)
-        
+
     else:
         raise AssertionError("Please specify the correct mode: 'predict', 'video', 'fps' or 'dir_predict'.")
