@@ -106,7 +106,7 @@ class FPN(nn.Module):
 
 
 #------------------------------------------#
-#   对P3进行上采样
+#   对P3进行上采样,调整通道为32,需要和结合pred_mask使用
 #   [b, 256, 68, 68] -> [b, 32, 136, 136]
 #------------------------------------------#
 class ProtoNet(nn.Module):
@@ -240,7 +240,7 @@ class Yolact(nn.Module):
         self.prediction_layers      = PredictionModule(num_classes, coef_dim=coef_dim)
 
         #------------------------------------------#
-        #   P3分割
+        #   P3分割mask
         #   [b, 256, 68, 68] -> [b, 81-1, 68, 68]
         #------------------------------------------#
         self.semantic_seg_conv      = nn.Conv2d(256, num_classes - 1, kernel_size=1)
@@ -293,7 +293,7 @@ class Yolact(nn.Module):
 
         if self.train_mode:
             #----------------------------------------------#
-            #   P3分割
+            #   P3分割mask
             #   P3: [b, 256, 68, 68] -> [b, 81-1, 68, 68]
             #----------------------------------------------#
             pred_segs   = self.semantic_seg_conv(features[0])

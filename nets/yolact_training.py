@@ -11,7 +11,7 @@ def encode(matched, anchors):
     variances = [0.1, 0.2]
 
     g_cxcy  = (matched[:, :2] + matched[:, 2:]) / 2 - anchors[:, :2]  # (Xg - Xa) / Wa / 0.1
-    g_cxcy  /= (variances[0] * anchors[:, 2:]) 
+    g_cxcy  /= (variances[0] * anchors[:, 2:])
     g_wh    = (matched[:, 2:] - matched[:, :2]) / anchors[:, 2:]  # log(Wg / Wa) / 0.2
     g_wh    = torch.log(g_wh) / variances[1]
     offsets = torch.cat([g_cxcy, g_wh], 1)  # [num_anchors, 4]
@@ -51,7 +51,7 @@ def match(pos_thresh, neg_thresh, box_gt, anchors, class_gt, crowd_boxes):
     #   overlaps [num_objects, num_anchors]
     #--------------------------------------------#
     overlaps        = jaccard(box_gt, decoded_anchors)
-    
+
     #--------------------------------------------#
     #   每个真实框重合程度最大的先验框
     #--------------------------------------------#
@@ -120,7 +120,7 @@ class Multi_Loss(nn.Module):
         self.pos_thre       = pos_thre
         self.neg_thre       = neg_thre
         self.negpos_ratio   = negpos_ratio
-        
+
     def forward(self, predictions, targets, mask_gt, num_crowds):
         pred_boxes      = predictions[0]
         pred_classes    = predictions[1]
@@ -163,16 +163,16 @@ class Multi_Loss(nn.Module):
             #   anchor_max_indexes  [batch_size, num_anchors]
             #------------------------------------------------------------#
             true_offsets[i], true_classes[i], anchor_max_box[i], anchor_max_index[i] = match(self.pos_thre, self.neg_thre,
-                                                                                     box_gt, anchors, class_gt[i], crowd_boxes)
+                                                                                        box_gt, anchors, class_gt[i], crowd_boxes)
 
         losses = {}
 
-        positive_bool   = true_classes > 0  
+        positive_bool   = true_classes > 0
         num_pos         = positive_bool.sum(dim=1, keepdim=True)
 
         pos_pred_boxes  = pred_boxes[positive_bool, :]
         pos_offsets     = true_offsets[positive_bool, :]
-        
+
         losses['B']     = self.bbox_loss(pos_pred_boxes, pos_offsets) * 1.5
         losses['C']     = self.ohem_conf_loss(pred_classes, true_classes, positive_bool)
         losses['M']     = self.lincomb_mask_loss(positive_bool, pred_masks, pred_proto, mask_gt, anchor_max_box, anchor_max_index) * 6.125
@@ -202,19 +202,19 @@ class Multi_Loss(nn.Module):
         #   batch_conf      batch_size, num_anchors, num_classes -> batch_size * num_anchors, num_classes
         #   batch_conf_max  batch_size * num_anchors, num_classes -> batch_size * num_anchors
         #   mark            batch_size * num_anchors -> batch_size, num_anchors
-        #   
+        #
         #   mark代表所有负样本的难分类程度。
         #------------------------------------------------------------------------------------#
-        batch_conf      = pred_classes.view(-1, self.num_classes)  
+        batch_conf      = pred_classes.view(-1, self.num_classes)
         batch_conf_max  = batch_conf.data.max()
-        
+
         mark            = torch.log(torch.sum(torch.exp(batch_conf - batch_conf_max), 1)) + batch_conf_max - batch_conf[:, 0]
-        mark            = mark.view(pred_classes.size(0), -1) 
+        mark            = mark.view(pred_classes.size(0), -1)
         #------------------------------------------------------------------------------------#
         #   去除掉正样本和忽略的样本
         #------------------------------------------------------------------------------------#
-        mark[positive_bool]     = 0  
-        mark[true_classes < 0]  = 0  
+        mark[positive_bool]     = 0
+        mark[true_classes < 0]  = 0
 
         #------------------------------------------------------------------------------------#
         #   idx         batch_size, num_anchors
@@ -255,15 +255,15 @@ class Multi_Loss(nn.Module):
         #   136, 136
         #-------------------------------------#
         proto_h = pred_proto.size(1)
-        proto_w = pred_proto.size(2)  
+        proto_w = pred_proto.size(2)
 
         loss_m = 0
         #-----------------------------------------------#
         #   pred_masks  batch_size, num_anchors, 32
         #   pred_proto  batch_size, 136, 136, 32
-        #   mask_gt     
+        #   mask_gt
         #-----------------------------------------------#
-        for i in range(pred_masks.size(0)):  
+        for i in range(pred_masks.size(0)):
             with torch.no_grad():
                 #-----------------------------------------------------#
                 #   对真实mask进行处理，获得高宽为136, 136的实例mask
@@ -281,7 +281,7 @@ class Multi_Loss(nn.Module):
             #-----------------------------------------------------#
             pos_coef            = pred_masks[i, positive_bool[i]]
             pos_anchor_box      = anchor_max_box[i, positive_bool[i]]
-            pos_anchor_index    = anchor_max_index[i, positive_bool[i]]  
+            pos_anchor_index    = anchor_max_index[i, positive_bool[i]]
 
             #-----------------------------------------------------#
             #   如果不存在正样本，那么跳过到下一个图片
@@ -320,8 +320,8 @@ class Multi_Loss(nn.Module):
             #   pos_anchor_box  num_pos, 4
             #-----------------------------------------------------#
             mask_p = pred_proto[i] @ pos_coef.t()
-            mask_p = crop(mask_p, pos_anchor_box)  
-            
+            mask_p = crop(mask_p, pos_anchor_box)
+
             mask_loss = F.binary_cross_entropy_with_logits(mask_p, pos_mask_gt, reduction='none')
             #-----------------------------------------------------#
             #   每个先验框各自计算平均值
@@ -333,7 +333,7 @@ class Multi_Loss(nn.Module):
                 mask_loss *= old_num_pos / (num_pos + eps)
 
             loss_m += torch.sum(mask_loss)
-        
+
         return loss_m / (proto_h + eps) / (proto_w + eps)
 
     @staticmethod

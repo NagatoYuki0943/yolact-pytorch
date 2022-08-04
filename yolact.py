@@ -152,14 +152,19 @@ class YOLACT(object):
                 image_data = image_data.cuda()
             #---------------------------------------------------------#
             #   将图像输入网络当中进行预测！
-            #   pred_boxes:   [b, 18525,  4]    对应每个先验框的调整情况
-            #   pred_classes: [b, 18525, 81]    对应每个先验框的种类
-            #   pred_masks:   [b, 18525, 32]    对应每个先验框的语义分割情况
-            #   pred_proto:   [b, 136, 136, 32] 需要和结合pred_mask使用
+            #   pred_boxes:     [b, 18525,  4]    对应每个先验框的调整情况
+            #   pred_classes:   [b, 18525, 81]    对应每个先验框的种类
+            #   pred_masks:     [b, 18525, 32]    对应每个先验框的语义分割情况
+            #   pred_proto:     [b, 136, 136, 32] 对P3进行上采样,调整通道为32,需要和结合pred_mask使用
             #---------------------------------------------------------#
             outputs = self.net(image_data)
             #---------------------------------------------------------#
             #   解码并进行非极大抑制
+            #   box_thre:       [num_of_kept_boxes, 4]
+            #   class_thre:     [num_of_kept_boxes]
+            #   class_ids:      [num_of_kept_boxes]
+            #   masks_arg:      [1130, 1130]  1130是原图尺寸
+            #   masks_sigmoid:  [1330, 1330, num_of_kept_boxes]
             #---------------------------------------------------------#
             results = self.bbox_util.decode_nms(outputs, self.anchors, self.confidence, self.nms_iou, image_shape, self.traditional_nms)
 
