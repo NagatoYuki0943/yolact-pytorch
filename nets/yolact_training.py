@@ -18,6 +18,10 @@ def encode(matched, anchors):
 
     return offsets
 
+#---------------------------------------------------------#
+#   求box与box的Fast NMS
+#   https://blog.csdn.net/wh8514/article/details/105520870/
+#---------------------------------------------------------#
 def jaccard(box_a, box_b, iscrowd: bool = False):
     use_batch = True
     if box_a.dim() == 2:

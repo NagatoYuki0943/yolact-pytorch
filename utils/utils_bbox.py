@@ -31,6 +31,10 @@ class BBoxUtility(object):
         boxes[:, 2:] += boxes[:, :2]        # x1y1 + wh  = x2y2
         return boxes
 
+    #---------------------------------------------------------#
+    #   求box与box的Fast NMS
+    #   https://blog.csdn.net/wh8514/article/details/105520870/
+    #---------------------------------------------------------#
     def jaccard(self, box_a, box_b, iscrowd: bool = False):
         use_batch = True
         if box_a.dim() == 2:
@@ -129,8 +133,21 @@ class BBoxUtility(object):
         return box_nms, class_nms, class_ids, mask_nms
 
     def traditional_non_max_suppression(self, box_thre, class_thre, mask_thre, pred_class_max, nms_iou, max_detections):
+        """非极大值抑制
 
+        Args:
+            box_thre (tensor):   保存的框   [43, 4]     注意下面的43都是num_of_kept_boxes
+            class_thre (tensor): 保存的类别 [43, 80]
+            mask_thre (tensor):  保存的分割 [43, 32]
+            pred_class_max (tensor):   类别最大种类置信度 [43]
+            nms_iou (float, optional): 非极大值抑制阈值,越小越严格. Defaults to 0.5.
+            max_detections (int):      最大检测数量
+        Returns:
+            
+        """
+        # 80个类别
         num_classes     = class_thre.size()[1]
+        # 找出每个框对应的最大类别下标
         pred_class_arg  = torch.argmax(class_thre, dim = -1)
 
         box_nms, class_nms, class_ids, mask_nms = [], [], [], []
@@ -139,7 +156,7 @@ class BBoxUtility(object):
             #   取出属于该类的所有框的置信度
             #   判断是否大于门限
             #--------------------------------#
-            c_confs_m = pred_class_arg == c
+            c_confs_m = pred_class_arg == c # 下标 = 0,1,2...
             if len(c_confs_m) > 0:
                 #-----------------------------------------#
                 #   取出得分高于confidence的框
@@ -164,7 +181,7 @@ class BBoxUtility(object):
                 mask_nms.append(good_masks)
         box_nms, class_nms, class_ids, mask_nms = torch.cat(box_nms, dim = 0), torch.cat(class_nms, dim = 0), \
                                                   torch.cat(class_ids, dim = 0), torch.cat(mask_nms, dim = 0)
-
+        # 保留一定数量
         idx = torch.argsort(class_nms, 0, descending=True)[:max_detections]
         box_nms, class_nms, class_ids, mask_nms = box_nms[idx], class_nms[idx], class_ids[idx], mask_nms[idx]
         return box_nms, class_nms, class_ids, mask_nms
@@ -187,6 +204,7 @@ class BBoxUtility(object):
         scales              = torch.cat([image_size, image_size], dim=-1)
         # 扩展到原图尺寸
         boxes               = boxes * scales
+        # 对x1y1x2y2进行限制,因为没有对box进行归一化
         boxes[:, [0, 1]]    = torch.min(boxes[:, [0, 1]], boxes[:, [2, 3]])
         boxes[:, [2, 3]]    = torch.max(boxes[:, [0, 1]], boxes[:, [2, 3]])
         boxes[:, [0, 1]]    = torch.max(boxes[:, [0, 1]], torch.zeros_like(boxes[:, [0, 1]]))
@@ -235,11 +253,12 @@ class BBoxUtility(object):
         #---------------------------------------------------------#
         #   pred_box:   [b, 18525, 4]       对应每个先验框的调整情况
         #   pred_class: [b, 18525, 81]      对应每个先验框的种类
-        #   pred_mask:  [b, 18525, 32]      对应每个先验框的语义分割情况
-        #   pred_proto: [b, 136, 136, 32]   对P3进行上采样,调整通道为32,需要和结合pred_mask使用
+        #   pred_mask:  [b, 18525, 32]      对应每个先验框的语义分割情况置信度
+        #   pred_proto: [b, 136, 136, 32]   原型mask,调整通道为32,需要和结合pred_mask使用
         #   去除batch=1
         #---------------------------------------------------------#
         pred_box    = outputs[0].squeeze()
+        # print("pred_box", pred_box.max())   # 5.1560 box是没有归一化的,不过还原到原图尺寸是限制了对x1y1x2y2进行限制
         pred_class  = outputs[1].squeeze()
         pred_masks  = outputs[2].squeeze()
         pred_proto  = outputs[3].squeeze()
@@ -250,6 +269,7 @@ class BBoxUtility(object):
         #   boxes是左上角、右下角的形式。
         #---------------------------------------------------------#
         boxes       = self.decode_boxes(pred_box, anchors)
+        # print("boxes", boxes.max())         # 1.2629
 
         #---------------------------------------------------------#
         #   pred_class的最后维度再模型中经过了softmax处理
@@ -290,10 +310,11 @@ class BBoxUtility(object):
         #   将预测框还原到原图尺寸
         #   box_thre: [11, 4]
         #---------------------------------------------------------#
+        # print("box_thre", box_thre.max())     # 0.9204
         box_thre    = self.yolact_correct_boxes(box_thre, image_shape)
 
         #---------------------------------------------------------#
-        #   P3上采样的分割 * 预测的分割
+        #   原型mask * 预测的置信度
         #   pred_proto      [136, 136, 32]  P3进行上采样并调整维度
         #   mask_thre       [num_of_kept_boxes, 32]
         #   [136, 136, 32]@[32, num_of_kept_boxes] = [136, 136, num_of_kept_boxes]
